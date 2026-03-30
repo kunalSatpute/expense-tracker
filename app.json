@@ -4,33 +4,51 @@
     "slug": "expenseTracker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "",
     "scheme": "expensetracker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "upi",
+          "tez",
+          "phonepe",
+          "paytmmp", // ✅ was "paytm" — wrong scheme, must be "paytmmp"
+          "credpay",
+          "phonepe",
+          "bhim"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/adaptive-icon.png", // ✅ was missing — required field
+        "backgroundColor": "#E6F4FE"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA"],
+      "package": "com.kunalsatpute.expenseTracker",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [{ "scheme": "upi" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": ""
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/splashscreen_logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -38,11 +56,50 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      "expo-web-browser",
+      // ✅ ADD THIS — injects Android <queries> block for package visibility
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "manifestQueries": {
+              "package": [
+                "net.one97.paytm",
+                "com.phonepe.app",
+                "com.google.android.apps.nbu.paisa.user",
+                "com.dreamplug.androidapp",
+                "in.org.npci.upiapp"
+              ],
+              "intent": [
+                {
+                  "action": "android.intent.action.VIEW",
+                  "data": { "scheme": "upi" }
+                }
+              ]
+            }
+          }
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7f3cdbc6-2592-436c-9891-9ba302367a4b"
+      }
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/7f3cdbc6-2592-436c-9891-9ba302367a4b"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }
