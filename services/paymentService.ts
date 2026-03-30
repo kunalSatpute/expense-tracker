@@ -30,14 +30,20 @@ export const payUPI = async (
     `mode=04`,
   ].join("&");
 
-  // ✅ Generic intent — Android shows system UPI app chooser
-  // User picks PhonePe/GPay themselves → payment initiated FROM that app
-  // callingPackage becomes the UPI app itself, not yours → no block
   const upiURL = `upi://pay?${params}`;
 
+  console.log("Opening:", upiURL);
+
   try {
-    console.log(upiURL);
-    await Linking.openURL(upiURL);
+    const canOpen = await Linking.canOpenURL(upiURL);
+    if (canOpen) {
+      await Linking.openURL(upiURL);
+    } else {
+      Alert.alert(
+        "No UPI App Found",
+        "Please install Google Pay, PhonePe, or Paytm.",
+      );
+    }
   } catch {
     Alert.alert(
       "No UPI App Found",
