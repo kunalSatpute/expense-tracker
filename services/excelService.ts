@@ -34,7 +34,7 @@ const createSheetStructure = (buckets: any[]) => {
     header2.push("Spend On");
     header2.push("Rs.");
     header2.push("Date");
-    header2.push("");
+    header2.push("Txn ID");
   });
 
   return [header1, header2];
@@ -77,6 +77,7 @@ export const saveSpendToExcel = async (
   bucketName: string,
   note: string,
   amount: string,
+  transactionId: string = "",
 ) => {
   try {
     await ensureFolder();
@@ -180,7 +181,7 @@ export const saveSpendToExcel = async (
     data[row][colStart] = note;
     data[row][colStart + 1] = amount;
     data[row][colStart + 2] = formattedDate;
-    data[row][colStart + 3] = "";
+    data[row][colStart + 3] = transactionId;
 
     // remove old totals
     for (let i = data.length - 1; i >= 2; i--) {

@@ -1,43 +1,40 @@
 {
   "expo": {
-    "name": "expenseTracker",
-    "slug": "expenseTracker",
+    "name": "expensetracker",
+    "slug": "expensetracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "",
-    "scheme": "expensetracker",
+    "scheme": "com.kunalsatpute.expensetracker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.kunalsatpute.expensetracker",
+      "googleServicesFile": "./ios/GoogleService-Info.plist",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": [
-          "upi",
-          "tez",
-          "phonepe",
-          "paytmmp", // ✅ was "paytm" — wrong scheme, must be "paytmmp"
-          "credpay",
-          "phonepe",
-          "bhim"
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.754664480885-r9clq013t1ttbvb2iipat8ctab39tjsg"
+            ]
+          }
         ]
       }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png", // ✅ was missing — required field
+        "foregroundImage": "./assets/splashscreen_logo.png",
         "backgroundColor": "#E6F4FE"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.CAMERA"],
-      "package": "com.kunalsatpute.expenseTracker",
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "data": [{ "scheme": "upi" }],
-          "category": ["BROWSABLE", "DEFAULT"]
-        }
-      ]
+      "permissions": [
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS"
+      ],
+      "package": "com.kunalsatpute.expensetracker",
+      "googleServicesFile": "./android/app/google-services.json"
     },
     "web": {
       "output": "static",
@@ -58,7 +55,6 @@
         }
       ],
       "expo-web-browser",
-      // ✅ ADD THIS — injects Android <queries> block for package visibility
       [
         "expo-build-properties",
         {
@@ -74,13 +70,16 @@
               "intent": [
                 {
                   "action": "android.intent.action.VIEW",
-                  "data": { "scheme": "upi" }
+                  "data": {
+                    "scheme": "upi"
+                  }
                 }
               ]
             }
           }
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin"
     ],
     "experiments": {
       "typedRoutes": true,
