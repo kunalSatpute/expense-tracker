@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PermissionsAndroid, Platform } from "react-native";
 import SmsAndroid from "react-native-get-sms-android";
 import { auth, db } from "./firebaseConfig";
-import { doc, getDoc, setDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, collection, getDocs } from "firebase/firestore";
 
 export interface ParsedTransaction {
   id: string; // The SMS ID
@@ -10,6 +10,7 @@ export interface ParsedTransaction {
   amount: string;
   merchant: string;
   timestamp: number;
+  balanceAfter?: string; // Captured balance from SMS
 }
 
 export const requestSmsPermission = async () => {
@@ -33,32 +34,39 @@ export const requestSmsPermission = async () => {
   }
 };
 
-const extractTransactionDetails = (body: string): { amount: string; merchant: string; transactionId: string } | null => {
+const extractTransactionDetails = (body: string): { amount: string; merchant: string; transactionId: string; balance: string } | null => {
   const lowerBody = body.toLowerCase();
 
-  if (!lowerBody.includes("debited") && !lowerBody.includes("spent") && !lowerBody.includes("sent")) {
+  // Look for debit/spent keywords
+  const keywords = ["debited", "spent", "sent", "withdrawn", "paid", "transfer", "txn"];
+  if (!keywords.some(k => lowerBody.includes(k))) {
     return null;
   }
 
+  // 1. Extract Amount
   const amountMatch = body.match(/(?:RS|INR|Rs\.?|INR\.?)\s*(\d+(?:\.\d+)?)/i);
   if (!amountMatch) return null;
   const amount = amountMatch[1];
 
+  // 2. Extract Merchant / Label ATM
   let merchant = "Unknown";
-  // Matches "to ANIL UIKEY on" or "To HEMANT \n"
-  // Look for "to " (case insensitive), capture everything until " on ", " ref ", or newline
-  const toMatch = body.match(/to\s+(?:vpa\s+)?([A-Za-z0-9.\-@\s]+?)(?=\s+on\b|\s+ref\b|\n|$)/i);
-  if (toMatch && toMatch[1]) {
-    merchant = toMatch[1].trim().replace(/\n/g, ' ');
+  if (lowerBody.includes("atm") || lowerBody.includes("withdrawn")) {
+    merchant = "ATM Withdrawal";
   } else {
-    const toIndex = lowerBody.indexOf(" to ");
-    if (toIndex !== -1) {
-      merchant = body.substring(toIndex + 4, toIndex + 20).trim().split('\n')[0];
+    // Matches "to ANIL UIKEY on" or "To HEMANT \n"
+    const toMatch = body.match(/to\s+(?:vpa\s+)?([A-Za-z0-9.\-@\s]+?)(?=\s+on\b|\s+ref\b|\n|$)/i);
+    if (toMatch && toMatch[1]) {
+      merchant = toMatch[1].trim().replace(/\n/g, ' ');
+    } else {
+      const toIndex = lowerBody.indexOf(" to ");
+      if (toIndex !== -1) {
+        merchant = body.substring(toIndex + 4, toIndex + 20).trim().split('\n')[0];
+      }
     }
   }
 
+  // 3. Extract Transaction ID
   let transactionId = "";
-  // Include RRN, Ref, UPI Ref, Txn
   const refMatch = body.match(/(?:RRN:?|Ref(?:\.|\sNo\.?|:)?|UPI Ref|Txn|txn id)\s*(\d{6,})/i);
   if (refMatch && refMatch[1]) {
     transactionId = refMatch[1].trim();
@@ -66,7 +74,14 @@ const extractTransactionDetails = (body: string): { amount: string; merchant: st
     transactionId = `unknown_${amount}_${merchant.replace(/\s/g, '').substring(0, 5)}`;
   }
 
-  return { amount, merchant, transactionId };
+  // 4. Extract Available Balance (New)
+  let balance = "";
+  const balMatch = body.match(/(?:Avl Bal|Bal:?|Balance:?|Avl:?)\s*(?:RS|INR|Rs\.?|INR\.?)?\s*(\d+(?:\.\d+)?)/i);
+  if (balMatch && balMatch[1]) {
+    balance = balMatch[1].trim();
+  }
+
+  return { amount, merchant, transactionId, balance };
 };
 
 export const fetchRecentTransactions = async (): Promise<ParsedTransaction[]> => {
@@ -103,6 +118,7 @@ export const fetchRecentTransactions = async (): Promise<ParsedTransaction[]> =>
                 amount: extracted.amount,
                 merchant: extracted.merchant,
                 timestamp: msg.date,
+                balanceAfter: extracted.balance || undefined,
               });
             }
           });
@@ -127,10 +143,11 @@ export const filterUnsavedTransactions = async (transactions: ParsedTransaction[
   const storedTxnRefs = await AsyncStorage.getItem("SAVED_TXN_REFS");
   let savedTxnRefsArray: string[] = storedTxnRefs ? JSON.parse(storedTxnRefs) : [];
 
-  // 2. Get Cloud IDs if logged in
+  // 2. Get Cloud IDs (Saved and Pending) if logged in
   const user = auth.currentUser;
   if (user) {
     try {
+      // Check Saved Transactions
       const docRef = doc(db, "users", user.uid, "data", "transactions");
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
@@ -138,12 +155,25 @@ export const filterUnsavedTransactions = async (transactions: ParsedTransaction[
         const cloudSmsIds = cloudData.savedSmsIds || [];
         const cloudTxnRefs = cloudData.savedTxnRefs || [];
 
-        // Merge without duplicates for filtering
         savedIdsArray = Array.from(new Set([...savedIdsArray, ...cloudSmsIds]));
         savedTxnRefsArray = Array.from(new Set([...savedTxnRefsArray, ...cloudTxnRefs]));
       }
-    } catch (e) {
-      console.error("Error fetching cloud transactions:", e);
+
+      // Check Pending Transactions
+      const pendingRef = collection(db, "users", user.uid, "pending");
+      const pendingSnap = await getDocs(pendingRef);
+      const pendingSmsIds = pendingSnap.docs.map(d => d.data().smsId);
+      const pendingTxnRefs = pendingSnap.docs.map(d => d.data().transactionId);
+
+      savedIdsArray = Array.from(new Set([...savedIdsArray, ...pendingSmsIds]));
+      savedTxnRefsArray = Array.from(new Set([...savedTxnRefsArray, ...pendingTxnRefs]));
+    } catch (e: any) {
+      // Silent fail for offline/cloud issues during background filter
+      if (e?.code === 'unavailable' || e?.message?.includes('offline')) {
+          console.log("[SMS Sync] Cloud unreachable (Offline). Using local cache only.");
+      } else {
+          console.error("Cloud filter error:", e);
+      }
     }
   }
 
@@ -189,8 +219,13 @@ export const markTransactionSaved = async (smsId: string, transactionId: string)
           savedTxnRefs: arrayUnion(transactionId)
         });
       }
-    } catch (e) {
-      console.error("Error syncing transaction to cloud:", e);
+    } catch (e: any) {
+      // Silent fail for offline sync
+      if (e?.code === 'unavailable' || e?.message?.includes('offline')) {
+          console.log("[SMS Sync] Failed to sync to cloud (Offline). Will retry on next app open.");
+      } else {
+          console.error("Error syncing transaction to cloud:", e);
+      }
     }
   }
 };

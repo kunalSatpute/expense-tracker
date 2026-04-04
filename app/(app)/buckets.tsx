@@ -10,6 +10,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -18,14 +19,21 @@ import { getBuckets, saveBuckets, deleteBucketFromCloud } from "../../services/b
 export default function Buckets() {
   const [buckets, setBuckets] = useState<any[]>([]);
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadBuckets();
   }, []);
 
   const loadBuckets = async () => {
-    const data = await getBuckets();
-    setBuckets(data);
+    setLoading(true);
+    try {
+      const data = await getBuckets();
+      setBuckets(data);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const addBucket = async () => {
@@ -41,10 +49,15 @@ export default function Buckets() {
       name: name.trim(),
     };
 
-    const updated = [...buckets, newBucket];
-    setBuckets(updated);
-    await saveBuckets(updated);
-    setName("");
+    setSaving(true);
+    try {
+      const updated = [...buckets, newBucket];
+      setBuckets(updated);
+      await saveBuckets(updated);
+      setName("");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const confirmDelete = (id: string, bucketName: string) => {
@@ -66,12 +79,12 @@ export default function Buckets() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
     >
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" />
       
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color="#1E293B" />
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Manage Buckets</Text>
         <View style={{ width: 44 }} />
@@ -86,15 +99,18 @@ export default function Buckets() {
                 onChangeText={setName}
                 style={styles.input}
                 placeholderTextColor="#94A3B8"
+                editable={!saving}
             />
-            <TouchableOpacity style={styles.addBtn} onPress={addBucket}>
-                <Ionicons name="add" size={28} color="#fff" />
+            <TouchableOpacity style={[styles.addBtn, saving && { opacity: 0.7 }]} onPress={addBucket} disabled={saving}>
+                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="add" size={28} color="#fff" />}
             </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionTitle}>Your Categories ({buckets.length})</Text>
         
-        {buckets.length === 0 ? (
+        {loading ? (
+          <View style={styles.center}><ActivityIndicator size="large" color="#3B82F6" /></View>
+        ) : buckets.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="folder-open-outline" size={64} color="#CBD5E1" />
             <Text style={styles.emptyText}>No buckets created yet.</Text>
@@ -132,7 +148,13 @@ export default function Buckets() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#0F172A",
+  },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 100,
   },
   header: {
     flexDirection: "row",
@@ -141,7 +163,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 20,
-    backgroundColor: "#fff",
+    backgroundColor: "#0F172A",
   },
   backBtn: {
     width: 44,
@@ -149,12 +171,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#1E293B",
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: "bold",
-    color: "#1E293B",
+    color: "#FFFFFF",
   },
   content: {
     flex: 1,
@@ -163,7 +185,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#64748B",
+    color: "#94A3B8",
     marginBottom: 8,
   },
   inputContainer: {
@@ -173,13 +195,13 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     height: 56,
-    backgroundColor: "#fff",
+    backgroundColor: "#1E293B",
     borderRadius: 16,
     paddingHorizontal: 20,
     fontSize: 16,
-    color: "#1E293B",
+    color: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#334155",
     marginRight: 12,
   },
   addBtn: {
@@ -198,7 +220,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#1E293B",
+    color: "#FFFFFF",
     marginBottom: 16,
   },
   bucketItem: {
@@ -206,11 +228,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "#fff",
+    backgroundColor: "#1E293B",
     borderRadius: 20,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
+    borderColor: "#334155",
   },
   bucketInfo: {
     flexDirection: "row",
@@ -220,7 +242,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#0F172A",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
@@ -228,7 +250,7 @@ const styles = StyleSheet.create({
   bucketText: {
     fontSize: 16,
     fontWeight: "500",
-    color: "#1E293B",
+    color: "#FFFFFF",
   },
   deleteBtn: {
     width: 44,

@@ -1,22 +1,16 @@
-import { Drawer } from "expo-router/drawer";
+import { Stack } from "expo-router";
 
 export default function AppLayout() {
   return (
-    <Drawer>
-      <Drawer.Screen 
-        name="index" 
-        options={{ 
-          title: "Dashboard",
-          headerTitle: "Expense Tracker" 
-        }} 
-      />
-      <Drawer.Screen 
-        name="buckets" 
-        options={{ 
-          title: "Manage Buckets",
-          headerTitle: "Categories" 
-        }} 
-      />
-    </Drawer>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: "slide_from_right"
+      }}
+    >
+      <Stack.Screen name="index" />
+      <Stack.Screen name="pending" />
+      <Stack.Screen name="buckets" />
+    </Stack>
   );
 }

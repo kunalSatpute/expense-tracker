@@ -40,8 +40,8 @@ const createSheetStructure = (buckets: any[]) => {
   return [header1, header2];
 };
 
-const getFormattedDateTime = () => {
-  const now = new Date();
+const getFormattedDateTime = (timestamp?: number) => {
+  const now = timestamp ? new Date(timestamp) : new Date();
 
   const day = String(now.getDate()).padStart(2, "0");
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -54,21 +54,21 @@ const getFormattedDateTime = () => {
   return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
 };
 
-const calculateTotals = (data: any[][], buckets: any[]) => {
+const calculateTotalsForData = (data: any[][], bucketCount: number) => {
   const totals: number[] = [];
 
-  buckets.forEach((_, index) => {
-    const colStart = index * 4;
-
+  for (let i = 0; i < bucketCount; i++) {
+    const colStart = i * 4;
     let sum = 0;
 
+    // Skip headers (0, 1) and any existing Total rows
     for (let r = 2; r < data.length; r++) {
+      if (data[r] && data[r].includes("Total")) continue;
       const value = Number(data[r]?.[colStart + 1] || 0);
       sum += value;
     }
-
-    totals[index] = sum;
-  });
+    totals[i] = sum;
+  }
 
   return totals;
 };
@@ -78,15 +78,15 @@ export const saveSpendToExcel = async (
   note: string,
   amount: string,
   transactionId: string = "",
+  timestamp?: number
 ) => {
   try {
     await ensureFolder();
 
     const buckets = await getBuckets();
-
     const now = new Date();
     const year = now.getFullYear();
-    const month = now.toLocaleString("default", { month: "long" });
+    const monthName = now.toLocaleString("default", { month: "long" });
 
     const fileUri = folderPath + `Expense_${year}.xlsx`;
 
@@ -99,123 +99,123 @@ export const saveSpendToExcel = async (
       const fileData = await FileSystem.readAsStringAsync(fileUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-
       workbook = XLSX.read(fileData, { type: "base64" });
     } else {
       workbook = XLSX.utils.book_new();
     }
 
     /* ---------- Create sheet if month not exists ---------- */
-
-    if (!workbook.SheetNames.includes(month)) {
+    if (!workbook.SheetNames.includes(monthName)) {
       const rows = createSheetStructure(buckets);
-
       worksheet = XLSX.utils.aoa_to_sheet(rows);
 
       const merges: any[] = [];
-
-      buckets.forEach((bucket, index) => {
+      buckets.forEach((_, index) => {
         const startCol = index * 4;
-
-        merges.push({
-          s: { r: 0, c: startCol },
-          e: { r: 0, c: startCol + 3 },
-        });
+        merges.push({ s: { r: 0, c: startCol }, e: { r: 0, c: startCol + 3 } });
       });
-
       worksheet["!merges"] = merges;
-
-      XLSX.utils.book_append_sheet(workbook, worksheet, month);
+      XLSX.utils.book_append_sheet(workbook, worksheet, monthName);
     }
 
-    worksheet = workbook.Sheets[month];
-
+    worksheet = workbook.Sheets[monthName];
     let data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
-    /* ---------- Check if new buckets added ---------- */
-
-    const expectedColumns = buckets.length * 4;
-    const currentColumns = data[0] ? data[0].length : 0;
-
-    if (currentColumns < expectedColumns) {
-      const headers = createSheetStructure(buckets);
-
-      const existingData = data.slice(2);
-
-      const rebuiltSheet = [...headers, ...existingData];
-
-      worksheet = XLSX.utils.aoa_to_sheet(rebuiltSheet);
-
-      const merges: any[] = [];
-
-      buckets.forEach((bucket, index) => {
-        const startCol = index * 4;
-
-        merges.push({
-          s: { r: 0, c: startCol },
-          e: { r: 0, c: startCol + 3 },
-        });
-      });
-
-      worksheet["!merges"] = merges;
-
-      workbook.Sheets[month] = worksheet;
-
-      data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+    /* ---------- Step 8: Strict Duplicate Check ---------- */
+    if (transactionId) {
+      let isDuplicate = false;
+      for (let r = 2; r < data.length; r++) {
+        if (data[r] && data[r].includes("Total")) continue;
+        for (let b = 0; b < (data[0].length / 4); b++) {
+          const txnIdIndex = b * 4 + 3;
+          if (data[r] && data[r][txnIdIndex] === transactionId) {
+            isDuplicate = true;
+            break;
+          }
+        }
+        if (isDuplicate) break;
+      }
+      if (isDuplicate) {
+        console.log(`[Excel] Duplicate detected (ID: ${transactionId}). Skipping.`);
+        return;
+      }
     }
 
-    const bucketIndex = buckets.findIndex((b: any) => b.name === bucketName);
+    /* ---------- Step 10: Sync Middle-of-Month Buckets ---------- */
+    const sheetBucketsNames = data[0].filter(val => val && val !== "");
+    let updatedHeaders = false;
 
+    buckets.forEach((bucket: any) => {
+      if (!sheetBucketsNames.includes(bucket.name)) {
+        const nextCol = data[0].length;
+        data[0][nextCol] = bucket.name;
+        data[0][nextCol + 1] = "";
+        data[0][nextCol + 2] = "";
+        data[0][nextCol + 3] = "";
+
+        data[1][nextCol] = "Spend On";
+        data[1][nextCol + 1] = "Rs.";
+        data[1][nextCol + 2] = "Date";
+        data[1][nextCol + 3] = "Txn ID";
+        updatedHeaders = true;
+      }
+    });
+
+    if (updatedHeaders) {
+      // Re-calculate merges
+      const merges: any[] = [];
+      for (let i = 0; i < data[0].length / 4; i++) {
+        merges.push({ s: { r: 0, c: i * 4 }, e: { r: 0, c: i * 4 + 3 } });
+      }
+      worksheet["!merges"] = merges;
+    }
+
+    /* ---------- Write the Transaction ---------- */
+    const bucketIndex = buckets.findIndex((b: any) => b.name === bucketName);
     const colStart = bucketIndex * 4;
 
-    let row = 2;
-
-    while (data[row] && data[row][colStart]) {
-      row++;
+    let rowToInsert = 2;
+    while (data[rowToInsert] && data[rowToInsert][colStart] && !data[rowToInsert].includes("Total")) {
+      rowToInsert++;
     }
 
-    if (!data[row]) data[row] = [];
+    // Ensure we don't overwrite a Total row
+    if (data[rowToInsert] && data[rowToInsert].includes("Total")) {
+      data.splice(rowToInsert, 0, []); // Insert an empty row before Total
+    }
 
-    const formattedDate = getFormattedDateTime();
+    if (!data[rowToInsert]) data[rowToInsert] = [];
+    data[rowToInsert][colStart] = note;
+    data[rowToInsert][colStart + 1] = amount;
+    data[rowToInsert][colStart + 2] = getFormattedDateTime(timestamp);
+    data[rowToInsert][colStart + 3] = transactionId;
 
-    data[row][colStart] = note;
-    data[row][colStart + 1] = amount;
-    data[row][colStart + 2] = formattedDate;
-    data[row][colStart + 3] = transactionId;
-
-    // remove old totals
-    for (let i = data.length - 1; i >= 2; i--) {
+    /* ---------- Clean and Re-calculate Totals ---------- */
+    // Remove all existing Total rows
+    for (let i = data.length - 1; i >= 0; i--) {
       if (data[i] && data[i].includes("Total")) {
         data.splice(i, 1);
       }
     }
 
-    const totals = calculateTotals(data, buckets);
-
+    const bucketCount = data[0].length / 4;
+    const totals = calculateTotalsForData(data, bucketCount);
     const totalRow: any[] = [];
+    for (let i = 0; i < bucketCount; i++) {
+      totalRow[i * 4] = "Total";
+      totalRow[i * 4 + 1] = totals[i];
+    }
 
-    buckets.forEach((_, index) => {
-      const colStart = index * 4;
-
-      totalRow[colStart] = "Total";
-      totalRow[colStart + 1] = totals[index];
-    });
-
-    data.push([]);
+    data.push([]); // Gap
     data.push(totalRow);
 
     const updatedSheet = XLSX.utils.aoa_to_sheet(data);
+    updatedSheet["!merges"] = worksheet["!merges"];
+    workbook.Sheets[monthName] = updatedSheet;
 
-    workbook.Sheets[month] = updatedSheet;
+    const excelData = XLSX.write(workbook, { type: "base64", bookType: "xlsx" });
+    await FileSystem.writeAsStringAsync(fileUri, excelData, { encoding: FileSystem.EncodingType.Base64 });
 
-    const excelData = XLSX.write(workbook, {
-      type: "base64",
-      bookType: "xlsx",
-    });
-
-    await FileSystem.writeAsStringAsync(fileUri, excelData, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
   } catch (error) {
     console.log("Excel error:", error);
   }
@@ -224,43 +224,22 @@ export const saveSpendToExcel = async (
 export const downloadExcel = async () => {
   try {
     const year = new Date().getFullYear();
-
-    const fileUri =
-      FileSystem.documentDirectory + "ExpenseTracker/Expense_" + year + ".xlsx";
-
+    const fileUri = folderPath + `Expense_${year}.xlsx`;
     const fileInfo = await FileSystem.getInfoAsync(fileUri);
-
-    if (!fileInfo.exists) {
-      Alert.alert("File not found", "No Excel file created yet.");
-      return;
-    }
-
+    if (!fileInfo.exists) return Alert.alert("Not Found", "No Excel file yet.");
     await Sharing.shareAsync(fileUri);
   } catch (error) {
-    console.log(error);
-    Alert.alert("Error downloading Excel");
+    Alert.alert("Error sharing Excel");
   }
 };
 
 export const deleteExcel = async () => {
   try {
     const year = new Date().getFullYear();
-
-    const fileUri =
-      FileSystem.documentDirectory + "ExpenseTracker/Expense_" + year + ".xlsx";
-
-    const fileInfo = await FileSystem.getInfoAsync(fileUri);
-
-    if (!fileInfo.exists) {
-      Alert.alert("File not found", "No Excel file to delete.");
-      return;
-    }
-
+    const fileUri = folderPath + `Expense_${year}.xlsx`;
     await FileSystem.deleteAsync(fileUri);
-
     Alert.alert("Success", "Excel file deleted.");
   } catch (error) {
-    console.log(error);
     Alert.alert("Error deleting file");
   }
 };
